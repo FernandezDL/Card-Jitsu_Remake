@@ -215,8 +215,12 @@ class CardJitsu(App):
         else:
             recompensa = reward(resultado == "User", resultado == "IA")
             
-        print(f'Resultado: {resultado}')
-        print(f'Carta IA: Color={carta_ia.color}, Número={carta_ia.numero}, Elemento={carta_ia.elemento}')
+        print(f'Estado Actual: {estado_actual}')
+        print(f'Resultado del turno: {resultado}')
+        print(f'Carta IA: {carta_ia}')
+        print(f'Carta Usuario: {carta_user}')
+        print(f'Recompensa: {recompensa}')
+        print(f'Victorias actualizadas: {self.victorias}')
 
         # Mostrar las cartas seleccionadas en grande
         indice_carta_user = carta_image.index
@@ -254,10 +258,11 @@ class CardJitsu(App):
 
         estado_siguiente = get_state(self.victorias, self.mano_ia, self.mazo, self.mazo_ia, self.historial_acciones)
         update_Q(estado_actual, carta_ia, recompensa, estado_siguiente, self.mano_ia)
-
+        print(f'Estado Siguiente: {estado_siguiente}')
         # Verificar condiciones de victoria
         ganador, victoria = copia.verificar_condicion_victoria(self.victorias)
         if ganador:
+            print(f'Ganador: {ganador}, Detalles de la Victoria: {victoria}')
             self.mostrar_ganador(ganador, victoria)
             return  # Salir del método si hay un ganador
 

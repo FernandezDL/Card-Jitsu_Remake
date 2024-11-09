@@ -26,7 +26,7 @@ class DQN(nn.Module):
 
     def forward(self, x):
         x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2)
+        x = F.relu(self.fc2(x))  # Corrección aplicada aquí
         return self.fc3(x)
 
 class DeepQLearningAgent:
