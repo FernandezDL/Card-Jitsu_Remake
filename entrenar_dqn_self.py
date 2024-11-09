@@ -1,10 +1,10 @@
+import time  # Importar el módulo time para medir el tiempo
+import torch
 import numpy as np
-from Qlearning import get_state, reward, inicializar_Q
-from asignarCartas import cargar_cartas, asignar_cartas
+from Qlearning import get_state, reward
+from asignarCartas import cargar_cartas
 import copia
 from DeepQNetwork import DeepQLearningAgent
-import time
-
 
 # Definir TARGET_UPDATE para sincronizar la red de destino del DQN
 TARGET_UPDATE = 10
@@ -59,22 +59,26 @@ def is_numeric_state(state):
             return False
     return True
 
-def entrenar_dqn_con_qlearning(episodios=10000):
+def entrenar_dqn_selfplay(episodios=20000):
+    # Medir el tiempo de inicio
     start_time = time.time()
+    
     # Configuración inicial del modelo DQN
     state_dim = 20  # Longitud fija del estado
     action_dim = 5  # Suponiendo que siempre hay 5 cartas en la mano
-    agent_dqn = DeepQLearningAgent(state_dim, action_dim)
+    agent_dqn = DeepQLearningAgent(state_dim, action_dim)      # Agente principal (User)
+    opponent_dqn = DeepQLearningAgent(state_dim, action_dim)   # Agente oponente (IA)
 
-    # Inicializar Q-Table solo para usarla, sin actualizarla
-    inicializar_Q()
+    # Cargar el modelo previamente entrenado
+    agent_dqn.load_model('models_QL/dqn_trained_model_10000.pth')
+    opponent_dqn.load_model('models_QL/dqn_trained_model_10000.pth')
 
     for episodio in range(episodios):
         # Inicializar partida
         cartas = cargar_cartas()
-        cartas_dqn, cartas_ql = asignar_cartas(cartas)
-        mano_dqn, mazo_dqn = copia.seleccionar_cartas_mano(cartas_dqn)
-        mano_ql, mazo_ql = copia.seleccionar_cartas_mano(cartas_ql)
+        cartas_user, cartas_ia = copia.asignar_cartas(cartas)
+        mano_user, mazo_user = copia.seleccionar_cartas_mano(cartas_user)
+        mano_ia, mazo_ia = copia.seleccionar_cartas_mano(cartas_ia)
         
         victorias = {"User": {"Fuego": [], "Agua": [], "Nieve": []}, "IA": {"Fuego": [], "Agua": [], "Nieve": []}}
         historial_acciones = []
@@ -82,21 +86,20 @@ def entrenar_dqn_con_qlearning(episodios=10000):
 
         while not done:
             # Obtener el estado actual
-            estado_actual = get_state(victorias, mano_ql, mazo_dqn, mazo_ql, historial_acciones)
+            estado_actual = get_state(victorias, mano_ia, mazo_user, mazo_ia, historial_acciones)
             estado_actual_encoded = encode_state(estado_actual)  # Codificar el estado para DQN
-            # print(f"Longitud del estado codificado: {len(estado_actual_encoded)}")  # Opcional para depuración
 
             # Selección de acciones
-            accion_dqn = agent_dqn.select_action(estado_actual_encoded)
-            accion_ql = copia.select_action(estado_actual, mano_ql)  # El Q-Learning usa el estado sin codificar
+            accion_user = agent_dqn.select_action(estado_actual_encoded)
+            accion_ia = opponent_dqn.select_action(estado_actual_encoded)
 
             # Jugar las cartas seleccionadas
-            carta_dqn = mano_dqn.pop(accion_dqn)
-            carta_ql = mano_ql.pop(mano_ql.index(accion_ql))
+            carta_user = mano_user.pop(accion_user)
+            carta_ia = mano_ia.pop(accion_ia)
 
             # Determinar el resultado del turno y la recompensa
-            resultado = copia.determinar_ganador(carta_dqn, carta_ql, victorias)
-            historial_acciones.append((carta_dqn.elemento, carta_ql.elemento, resultado))
+            resultado = copia.determinar_ganador(carta_user, carta_ia, victorias)
+            historial_acciones.append((carta_user.elemento, carta_ia.elemento, resultado))
 
             if resultado == "Empate":
                 recompensa = reward(False, False)
@@ -104,13 +107,13 @@ def entrenar_dqn_con_qlearning(episodios=10000):
                 recompensa = reward(resultado == "User", resultado == "IA")
 
             # Obtener el estado siguiente
-            estado_siguiente = get_state(victorias, mano_ql, mazo_dqn, mazo_ql, historial_acciones)
+            estado_siguiente = get_state(victorias, mano_ia, mazo_user, mazo_ia, historial_acciones)
             estado_siguiente_encoded = encode_state(estado_siguiente)
 
             # Verificar que los estados sean numéricos antes de almacenarlos
             if is_numeric_state(estado_actual_encoded) and is_numeric_state(estado_siguiente_encoded):
-                # Almacenar la experiencia y entrenar
-                agent_dqn.store_experience(estado_actual_encoded, accion_dqn, recompensa, estado_siguiente_encoded, done)
+                # Almacenar la experiencia y entrenar al agente principal
+                agent_dqn.store_experience(estado_actual_encoded, accion_user, recompensa, estado_siguiente_encoded, done)
                 agent_dqn.train()
             else:
                 print("Error: El estado contiene valores no numéricos:", estado_actual_encoded)
@@ -123,18 +126,23 @@ def entrenar_dqn_con_qlearning(episodios=10000):
                 done = True
 
             # Reemplazar cartas si quedan en el mazo
-            if mazo_dqn and mazo_ql:
-                nueva_carta_dqn = np.random.choice(mazo_dqn)
-                mazo_dqn.remove(nueva_carta_dqn)
-                mano_dqn.append(nueva_carta_dqn)
+            if mazo_user and mazo_ia:
+                nueva_carta_user = np.random.choice(mazo_user)
+                mazo_user.remove(nueva_carta_user)
+                mano_user.append(nueva_carta_user)
 
-                nueva_carta_ql = np.random.choice(mazo_ql)
-                mazo_ql.remove(nueva_carta_ql)
-                mano_ql.append(nueva_carta_ql)
+                nueva_carta_ia = np.random.choice(mazo_ia)
+                mazo_ia.remove(nueva_carta_ia)
+                mano_ia.append(nueva_carta_ia)
 
         # Actualizar red de destino cada TARGET_UPDATE episodios
         if (episodio + 1) % TARGET_UPDATE == 0:
             agent_dqn.update_target_network()
+
+        # Sincronizar el agente oponente con el agente principal cada 100 episodios
+        if (episodio + 1) % 100 == 0:
+            opponent_dqn.policy_net.load_state_dict(agent_dqn.policy_net.state_dict())
+            print(f"Episodio {episodio + 1}: Sincronizando el agente oponente con el agente principal.")
 
         # Mostrar progreso cada 50 episodios
         if (episodio + 1) % 50 == 0:
@@ -144,11 +152,11 @@ def entrenar_dqn_con_qlearning(episodios=10000):
     end_time = time.time()
     total_time = end_time - start_time
     print(f"Entrenamiento completado en {total_time:.2f} segundos.")
-    
+
     # Guardar el modelo DQN al finalizar el entrenamiento
-    agent_dqn.save_model('models_QL/dqn_trained_model_10000.pth')
-    print("Entrenamiento completado y modelo guardado en 'dqn_trained_model_1000.pth'.")
+    agent_dqn.save_model('models_QL_Self/dqn_trained_selfplay_model_10000.pth')
+    print("Modelo guardado en 'dqn_trained_selfplay_model.pth'.")
 
 # Ejecución de la función de entrenamiento
 if __name__ == "__main__":
-    entrenar_dqn_con_qlearning(episodios=10000)
+    entrenar_dqn_selfplay(episodios=20000)
