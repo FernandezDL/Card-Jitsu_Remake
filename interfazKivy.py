@@ -303,7 +303,7 @@ class CardJitsu(App):
 
             # Guardar el promedio en un archivo de texto sin sobrescribir los valores anteriores
             with open("ia_selection_times.txt", "a") as file:  # Modo "a" para append
-                file.write(f"{promedio_tiempo:.8f}\n")
+                file.write(f"\n{promedio_tiempo:.8f}")
 
         guardar_q_table()  # Guarda resultados de la partida en la memoria de la IA
 
