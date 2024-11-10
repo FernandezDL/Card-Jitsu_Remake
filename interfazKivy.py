@@ -17,6 +17,57 @@ from kivy.core.window import Window
 import copia
 from asignarCartas import cargar_cartas
 from Qlearning import get_state, select_action, update_Q, reward, inicializar_Q, guardar_q_table
+from DeepQNetwork import DeepQLearningAgent
+
+def codificar_cadena(cadena):
+    """Codifica una cadena específica a un valor numérico."""
+    if cadena == 'Fuego':
+        return 1
+    elif cadena == 'Agua':
+        return 2
+    elif cadena == 'Nieve':
+        return 3
+    elif cadena == 'User':
+        return 0
+    elif cadena == 'IA':
+        return 1
+    elif cadena == 'Empate':
+        return 2
+    else:
+        return -1  # Valor desconocido
+
+def encode_state(state):
+    """Codifica el estado y asegura longitud fija."""
+    encoded_state = []
+    for item in state:
+        if isinstance(item, (list, tuple)):
+            for sub_item in item:
+                if isinstance(sub_item, str):
+                    encoded_state.append(codificar_cadena(sub_item))
+                else:
+                    encoded_state.append(sub_item)
+        elif isinstance(item, str):
+            encoded_state.append(codificar_cadena(item))
+        else:
+            encoded_state.append(item)
+    
+    # Asegurar que el estado tenga una longitud fija
+    desired_length = 20  # Ajustar según sea necesario
+    while len(encoded_state) < desired_length:
+        encoded_state.append(0)  # Rellenar con ceros
+    
+    # Si es más largo, truncar al tamaño deseado
+    if len(encoded_state) > desired_length:
+        encoded_state = encoded_state[:desired_length]
+    
+    return encoded_state
+
+def is_numeric_state(state):
+    """Verifica que todos los elementos del estado sean numéricos."""
+    for item in state:
+        if not isinstance(item, (int, float)):
+            return False
+    return True
 
 class CartaImage(ButtonBehavior, RelativeLayout):
     def __init__(self, carta, app, index, **kwargs):
@@ -86,7 +137,13 @@ class CartaGrande(RelativeLayout):
 
 class CardJitsu(App):
     def build(self):
-        inicializar_Q()
+        # inicializar_Q()
+        state_dim = 20  # Asegúrate de que coincide con el tamaño usado durante el entrenamiento
+        action_dim = 5  # Asumiendo que siempre hay 5 cartas en la mano
+        global agent_dqn
+        agent_dqn = DeepQLearningAgent(state_dim, action_dim)
+        agent_dqn.load_model('models_QL/dqn_trained_model_1000.pth')
+        
         self.victorias = {"User": {"Fuego": [], "Agua": [], "Nieve": []}, "IA": {"Fuego": [], "Agua": [], "Nieve": []}}
         self.historial_acciones = []  # Agregar historial de acciones
         self.layout = FloatLayout()
@@ -199,10 +256,16 @@ class CardJitsu(App):
                 self.insignias_ia[elemento].add_widget(insignia)
 
     def carta_seleccionada(self, carta_image):
-        # Selección de acción (carta) para la IA usando Q-learning
+        # Selección de acción (carta) para la IA usando DQN
         estado_actual = get_state(self.victorias, self.mano_ia, self.mazo, [], self.historial_acciones)
-        carta_ia = select_action(estado_actual, self.mano_ia)
-        self.mano_ia.remove(carta_ia)
+        estado_actual_encoded = encode_state(estado_actual)
+        
+        accion_ia_index = agent_dqn.select_action(estado_actual_encoded)
+        if accion_ia_index >= len(self.mano_ia):
+            accion_ia_index = random.randint(0, len(self.mano_ia) - 1)
+        
+        carta_ia = self.mano_ia.pop(accion_ia_index)        
+        # self.mano_ia.remove(carta_ia)
 
         carta_user = carta_image.carta
         self.mano.remove(carta_user)
@@ -211,17 +274,12 @@ class CardJitsu(App):
         self.historial_acciones.append((carta_user.elemento, carta_ia.elemento, resultado))
 
         if resultado == "Empate":
-            recompensa = reward(False, False)
+            recompensa = 0  # Recompensa neutra
+        elif resultado == "IA":
+            recompensa = 1  # Recompensa positiva
         else:
-            recompensa = reward(resultado == "User", resultado == "IA")
+            recompensa = -1 
             
-        print(f'Estado Actual: {estado_actual}')
-        print(f'Resultado del turno: {resultado}')
-        print(f'Carta IA: {carta_ia}')
-        print(f'Carta Usuario: {carta_user}')
-        print(f'Recompensa: {recompensa}')
-        print(f'Victorias actualizadas: {self.victorias}')
-
         # Mostrar las cartas seleccionadas en grande
         indice_carta_user = carta_image.index
         self.mostrar_cartas_seleccionadas(indice_carta_user, carta_user, carta_ia)
@@ -255,16 +313,22 @@ class CardJitsu(App):
         self.historial_acciones.append((carta_user.elemento, carta_ia.elemento, resultado)) # Añadir la acción y el resultado al historial
         copia.mostrar_victorias(self.victorias) # Imprimir las victorias actualizadas
         self.mostrar_insignias() # Actualizar insignias
+        
+        ganador, victoria = copia.verificar_condicion_victoria(self.victorias)
+        done = ganador is not None
 
         estado_siguiente = get_state(self.victorias, self.mano_ia, self.mazo, self.mazo_ia, self.historial_acciones)
-        update_Q(estado_actual, carta_ia, recompensa, estado_siguiente, self.mano_ia)
-        print(f'Estado Siguiente: {estado_siguiente}')
-        # Verificar condiciones de victoria
-        ganador, victoria = copia.verificar_condicion_victoria(self.victorias)
-        if ganador:
-            print(f'Ganador: {ganador}, Detalles de la Victoria: {victoria}')
+        estado_siguiente_encoded = encode_state(estado_siguiente)
+        estado_actual_encoded = encode_state(estado_actual)
+        if is_numeric_state(estado_actual_encoded) and is_numeric_state(estado_siguiente_encoded):
+            pass  # No hacemos nada ya que el modelo ya está entrenado
+        else:
+            print("Error: El estado contiene valores no numéricos:", estado_actual_encoded)
+
+        # Si hay un ganador, mostrar y terminar
+        if done:
             self.mostrar_ganador(ganador, victoria)
-            return  # Salir del método si hay un ganador
+            return
 
         # Reemplazar la carta seleccionada con una nueva carta del mazo
         if self.mazo:
@@ -286,7 +350,7 @@ class CardJitsu(App):
             self.mano_ia.append(nueva_carta_ia)
 
     def mostrar_ganador(self, ganador, victoria):
-        guardar_q_table()  # Guarda resultados de la partida en la memoria de la IA
+        # guardar_q_table()  # Guarda resultados de la partida en la memoria de la IA
 
         # Detener la música de fondo
         if self.sound:
