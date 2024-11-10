@@ -1,6 +1,7 @@
 import os
 import requests
 import random
+import time
 from kivy.app import App
 from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.image import Image
@@ -90,6 +91,7 @@ class CardJitsu(App):
         self.victorias = {"User": {"Fuego": [], "Agua": [], "Nieve": []}, "IA": {"Fuego": [], "Agua": [], "Nieve": []}}
         self.historial_acciones = []  # Agregar historial de acciones
         self.layout = FloatLayout()
+        self.ia_selection_times = [] # Lista para almacenar los tiempos de selección de la IA
 
         # -------------------- Fondo --------------------
         bg_image = Image(source='images/dojo.png', allow_stretch=True, keep_ratio=False)
@@ -199,9 +201,22 @@ class CardJitsu(App):
                 self.insignias_ia[elemento].add_widget(insignia)
 
     def carta_seleccionada(self, carta_image):
+        # Iniciar temporizador
+        start_time = time.perf_counter()
+
         # Selección de acción (carta) para la IA usando Q-learning
         estado_actual = get_state(self.victorias, self.mano_ia, self.mazo, [], self.historial_acciones)
         carta_ia = select_action(estado_actual, self.mano_ia)
+
+        # Detener el temporizador después de la selección
+        end_time = time.perf_counter()
+        selection_time = end_time - start_time
+        print(f"Tiempo de selección de la IA: {selection_time:.8f} segundos")
+
+        # Guardar el tiempo en la lista
+        self.ia_selection_times.append(selection_time)
+
+        # Quitar la carta seleccionada de la mano de la IA
         self.mano_ia.remove(carta_ia)
 
         carta_user = carta_image.carta
@@ -281,6 +296,15 @@ class CardJitsu(App):
             self.mano_ia.append(nueva_carta_ia)
 
     def mostrar_ganador(self, ganador, victoria):
+        # Calcular el promedio de los tiempos de selección de la IA
+        if self.ia_selection_times:
+            promedio_tiempo = sum(self.ia_selection_times) / len(self.ia_selection_times)
+            print(f"Promedio de tiempo de selección de la IA: {promedio_tiempo:.8f} segundos")
+
+            # Guardar el promedio en un archivo de texto sin sobrescribir los valores anteriores
+            with open("ia_selection_times.txt", "a") as file:  # Modo "a" para append
+                file.write(f"{promedio_tiempo:.8f}\n")
+
         guardar_q_table()  # Guarda resultados de la partida en la memoria de la IA
 
         # Detener la música de fondo
